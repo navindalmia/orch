@@ -1,0 +1,35 @@
+#!/usr/bin/env node
+"use strict";
+
+function readStdin() {
+  return new Promise((resolve) => {
+    let data = "";
+    process.stdin.on("data", (chunk) => (data += chunk));
+    process.stdin.on("end", () => resolve(data));
+    process.stdin.on("error", () => resolve(""));
+  });
+}
+
+async function main() {
+  const raw = await readStdin();
+  let input;
+  try {
+    input = JSON.parse(raw);
+  } catch {
+    process.exit(0);
+    return;
+  }
+
+  const toolInput = input.tool_input || {};
+  const model = toolInput.model || "(session default)";
+  const subagentType = toolInput.subagent_type || "general-purpose";
+  const description = toolInput.description || toolInput.prompt || "(no description)";
+  const shortDescription = String(description).slice(0, 120);
+
+  process.stderr.write(`[orch] -> dispatching ${subagentType} agent, model=${model}: ${shortDescription}\n`);
+
+  // Non-blocking: always allow the tool call through unmodified.
+  process.exit(0);
+}
+
+main();
