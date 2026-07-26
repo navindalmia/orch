@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 "use strict";
 
+const { readState, writeState } = require("./turn-state.js");
+
 const TIER_NAMES = {
   "claude-haiku-4-5-20251001": "scout",
   "claude-sonnet-5": "builder",
@@ -37,6 +39,10 @@ async function main() {
   process.stderr.write(
     `[orch] -> dispatching ${tierName} (${subagentType}, effort=${effort}): ${shortDescription}\n`
   );
+
+  const state = readState();
+  state.delegatedThisTurn = true;
+  writeState(state);
 
   // Non-blocking: always allow the tool call through unmodified.
   process.exit(0);

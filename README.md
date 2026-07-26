@@ -22,13 +22,14 @@ By default, every subagent spawned during a session runs at whatever model the m
 - **Effort before tier.** Every dispatch starts at the cheapest viable tier's *lowest* reasoning effort. If the result is unsatisfactory, retry the *same* tier at its *highest* effort before ever moving to a pricier tier. Only after a tier fails at its highest effort does escalation move up a tier — again starting at that tier's lowest effort.
 - **Context isolation.** Multi-file grep/search/analysis work is never done inline in the main session — it's always delegated to an independent `Agent` call, so only the synthesized result comes back and the session's own context doesn't fill up with raw intermediate data.
 - **Visible dispatch.** A `PreToolUse` hook deterministically prints which tier, agent type, and effort is being spawned and for what task, every time — this isn't left to the model to remember to narrate.
+- **Escalating delegation nudges.** A second `PreToolUse` hook watches the main session's own direct tool calls (`Bash`, `Edit`, `Write`, `Glob`, `Grep`, `MultiEdit`, `NotebookEdit`). Each one used inline instead of via a delegated `Agent` call gets a nudge, escalating in severity per call — 1st is a suggestion, 2nd/3rd+ are sharper. Never blocks, just gets louder. The nudge is skipped entirely once an `Agent` has actually been dispatched that turn (the session is then in supervisory mode, not avoiding delegation), and never fires inside a subagent doing the delegated work itself. A `UserPromptSubmit` hook resets the counter at the start of every new user turn, so nudging pressure doesn't carry across turns.
 - **Verification.** Every subagent result is reviewed by the current session model before being relied on — no silent pass-through.
 - **Feedback loop.** If a result is unsatisfactory, `orch` escalates per the effort-then-tier ladder above, logs the outcome to `~/.claude/orch.feedback.jsonl`, and treats that log as routing memory — future similar subtasks start at whatever effort/tier fixed it last time.
 - Two commands to manage the ceiling: `/orch:status`, `/orch:set-max <tier>` (set-max also enforces the hard cap — it refuses to set a ceiling above your current session model).
 
 ## What it deliberately doesn't do (v1)
 
-- No hard blocking of tool calls for tier/effort selection itself — dispatch visibility is enforced by a hook, but the *choice* of tier/effort is still a policy the main agent follows, not a programmatic gate.
+- No hard blocking of anything — dispatch visibility and delegation nudges are enforced by hooks and fire deterministically, but the *choice* of tier/effort and whether to actually delegate are still policy the main agent follows, not a programmatic gate that can refuse a tool call.
 - No multi-provider routing (Codex/Gemini/etc.) — Claude tiers only.
 - No workflow DSL, no named profiles. The feedback log is a flat JSONL file, not a trained model.
 
@@ -50,7 +51,8 @@ By default, every subagent spawned during a session runs at whatever model the m
 
 - `~/.claude/orch.config.json` — your configured ceiling (written by `/orch:set-max`)
 - `~/.claude/orch.feedback.jsonl` — append-only log of verification/escalation outcomes, used as routing memory
+- `~/.claude/orch.turn-state.json` — per-turn delegation-nudge counter, reset every user message. Single-session scope: if you run two Claude Code sessions from this machine at once, they currently share this file.
 
 ## Compatibility
 
-Hooks: `SessionStart` (injects policy) and `PreToolUse` matched only to the `Agent` tool (prints dispatch info, never blocks). No shared config paths with other plugins. Designed to coexist with other Claude Code plugins (developed alongside `compound-engineering`) without interference.
+Hooks: `SessionStart` (injects policy), `UserPromptSubmit` (resets the per-turn nudge counter), and `PreToolUse` matched to `Agent` (prints dispatch info) and to `Bash|Edit|Write|Glob|Grep|MultiEdit|NotebookEdit` (escalating delegation nudges). None of these block; they only print to stderr or inject context. No shared config paths with other plugins. Designed to coexist with other Claude Code plugins (developed alongside `compound-engineering`) without interference.
