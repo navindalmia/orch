@@ -1,0 +1,17 @@
+{
+  "name": "orch",
+  "owner": {
+    "name": "Navin Dalmia"
+  },
+  "metadata": {
+    "description": "Marketplace for the orch model-routing plugin",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "orch",
+      "description": "User-defined max-model ceiling with automatic step-down routing for subagent work.",
+      "source": "./"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "orch",
+  "version": "0.1.0",
+  "description": "Sets a user-defined maximum model ceiling per session and injects a policy so subagent work steps down to cheaper models when the task doesn't need the ceiling model.",
+  "author": {
+    "name": "Navin Dalmia"
+  },
+  "license": "MIT",
+  "keywords": [
+    "model-routing",
+    "cost-optimization",
+    "orchestration"
+  ],
+  "hooks": "./hooks/hooks.json"
+}
