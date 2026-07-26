@@ -58,15 +58,28 @@ function buildPolicyText(configuredCeiling) {
 
   lines.push(
     "",
-    "TIERS (cheapest first, never exceed the hard cap above):",
-    "- scout (claude-haiku-4-5-20251001): read-only or mechanical — grep/search, reading a known file," +
-      " listing/status checks, simple lookups, no judgment call, a wrong answer is cheap to catch and redo.",
+    "ALWAYS ON, NO INVOCATION NEEDED: apply this policy automatically to every task the user gives you in" +
+      " this session — coding or not. The user will never say \"use orch\" or \"delegate this\" or hint at" +
+      " routing in any way; that is the whole point. Every single turn, before you act, silently check: does" +
+      " this task (or any sub-step of it) qualify for delegation per the rubric below? If yes, delegate it" +
+      " that way by default, without announcing that you're following a policy or asking permission first." +
+      " This applies to ANY kind of task, not just software engineering — research, web lookups, writing," +
+      " analysis, anything you'd otherwise do inline yourself.",
+    "",
+    "TIERS (cheapest first, never exceed the hard cap above) — domain-agnostic, applies to coding AND" +
+      " general tasks (research, web search, writing, analysis, etc.):",
+    "- scout (claude-haiku-4-5-20251001): read-only, retrieval, or mechanical work with no judgment call —" +
+      " grep/search, reading a known file, listing/status checks, simple lookups, a single web search for" +
+      " factual/comparison information (e.g. \"find a good laptop\", \"what's the price of X\"), anything" +
+      " where a wrong answer is cheap to catch and redo.",
     "- builder (claude-sonnet-5): writing or editing code, standard debugging within a bounded scope," +
-      " multi-step reasoning over a known problem, synthesizing results already gathered by scout.",
+      " multi-step reasoning over a known problem, synthesizing/comparing results already gathered by scout" +
+      " (e.g. turning several scout-gathered laptop options into a reasoned recommendation).",
     "- architect (claude-opus-5): architecture-level judgment, ambiguous or underspecified scope," +
       " security-sensitive review, cross-cutting analysis where a wrong answer is expensive, or acting as" +
       " a second-opinion verifier above another tier's output.",
-    "- When a task mixes signals, classify by its hardest sub-step, not its average.",
+    "- When a task mixes signals, classify by its hardest sub-step, not its average. Retrieval/search steps" +
+      " are almost always scout even when the overall task ends at builder or architect for synthesis.",
     "",
     "TWO-DIMENSIONAL ESCALATION — within a tier, escalate effort before ever escalating tier:",
     "1. Pick the cheapest tier the task's hardest sub-step calls for (per the rubric above, capped at the" +
