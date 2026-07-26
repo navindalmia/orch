@@ -4,21 +4,17 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { tierIndexForModel } = require("./tiers.js");
 
-const TIERS = [
-  { name: "scout", model: "claude-haiku-4-5-20251001" },
-  { name: "builder", model: "claude-sonnet-5" },
-  { name: "architect", model: "claude-opus-5" }
-];
-const TIER_MODELS = TIERS.map((t) => t.model);
 const CONFIG_PATH = path.join(os.homedir(), ".claude", "orch.config.json");
 const FEEDBACK_LOG_PATH = path.join(os.homedir(), ".claude", "orch.feedback.jsonl");
+const TURN_STATE_PATH = path.join(os.homedir(), ".claude", "orch.turn-state.json");
 
 function readConfiguredCeiling() {
   try {
     const raw = fs.readFileSync(CONFIG_PATH, "utf8");
     const parsed = JSON.parse(raw);
-    if (TIER_MODELS.includes(parsed.maxModel)) {
+    if (tierIndexForModel(parsed.maxModel) >= 0) {
       return parsed.maxModel;
     }
   } catch {
@@ -38,13 +34,20 @@ function buildCeilingSection(configuredCeiling) {
   if (configuredCeiling) {
     lines.push(
       `- Configured ceiling (via /orch:set-max): ${configuredCeiling}, subject to the hard cap above.`,
+      "- This configured ceiling is hook-enforced: a PreToolUse hook actually denies Agent dispatches" +
+        " requesting a model above it — this is not just something you're trusted to follow.",
       "- Near the start of this session, briefly confirm this ceiling with the user before relying on it" +
-        " (they may want to change it) — don't wait for them to ask."
+        " (they may want to change it) — don't wait for them to ask.",
+      "- IMPORTANT: if this configured value is stale (e.g. left over from a session on a pricier model)," +
+        " it will be enforced as written regardless — tell the user to run /orch:set-max if it doesn't" +
+        " match what they want capped at right now."
     );
   } else {
     lines.push(
-      "- No ceiling configured yet. Default the ceiling to your own current model (which is also the hard" +
-        " cap, so this is the natural default).",
+      "- No ceiling configured yet, so there is nothing for a hook to enforce yet — set one with" +
+        " /orch:set-max as soon as possible so the hard cap becomes an actual gate, not just this text.",
+      "- Until then, default the ceiling to your own current model in your own behavior (this part is" +
+        " policy-only, not hook-enforced, since no hook can see which model is running this session).",
       "- Near the start of this session, tell the user you're defaulting the ceiling to the current session" +
         " model and ask them to confirm or lower it with /orch:set-max before you rely on it for delegation."
     );
@@ -123,6 +126,18 @@ function buildPolicyText(configuredCeiling) {
     "4. Treat that log as your own routing memory: before classifying a new subtask, if its description is" +
       " similar to a recent failed entry, start at the effort/tier that fixed it last time instead of" +
       " restarting from the cheapest option.",
+    "",
+    "END-OF-RESPONSE SUMMARY (mandatory, every response, no exceptions):",
+    "Before finishing each response, append a short summary line reporting what ran this turn. Do not" +
+      " recall this from memory or guess — read " + TURN_STATE_PATH + " (its `dispatches` array) as the" +
+      " source of truth for what was actually delegated this turn; it lists each dispatch's tier and effort" +
+      " in the order they happened.",
+    "- If dispatches is empty: state that you handled the turn directly yourself, plus a one-word complexity" +
+      " label for the main task (trivial / standard / complex) based on the same rubric signals used for" +
+      " tier classification above.",
+    "- If dispatches is non-empty: list each one as `<tier>(<effort>)`, e.g." +
+      ' "orch: scout(low) x2, builder(high) x1" — plus whether you did any direct work yourself alongside them.',
+    "- Keep it to one line, plainly labelled so the user can spot it, e.g. starting with \"orch:\".",
     "",
     "This policy only shapes how you delegate via the Agent tool; it does not change your own model."
   );
