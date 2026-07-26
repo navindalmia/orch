@@ -24,7 +24,7 @@ Be clear-eyed about this before relying on it:
 | Dispatch visibility: tier/effort is printed on every `Agent` call, unconditionally | Which tier/effort is *chosen* for a given task — the rubric is text, not a classifier |
 | Delegation nudges: escalating reminders on direct `Bash`/`Edit`/`Write`/`Glob`/`Grep`/`MultiEdit`/`NotebookEdit` use, every time, reset every turn | Whether the model actually delegates after being nudged — nudges can be ignored |
 | **Live session effort:** `$CLAUDE_EFFORT` is set by Claude Code on every `PreToolUse` call and captured into `orch.turn-state.json` on every fire — this is genuinely fresh every turn, no staleness | **Live session model:** confirmed against Claude Code's own hooks reference — there is no hook event for a mid-session `/model` switch, and no hook after `SessionStart` ever receives a model field again. If the model changes mid-session, `orch` has no way to detect it automatically; the policy instructs the agent to self-update `orch.session-cap.json` if it becomes aware of a switch, but that's a manual mitigation for a real platform gap, not enforcement |
-| — | Effort-before-tier escalation order, reviewing subagent results before use, writing feedback-log entries, and the end-of-response summary — none of these have a hook checking they happened |
+| **End-of-response summary:** a `Stop` hook reads the actual final response text (Claude Code exposes it as `last_assistant_message`) and, if the mandatory `orch:` summary line is missing, blocks the stop and tells the model exactly what to report from `orch.turn-state.json` — capped at one nudge per turn so it can't loop forever if the model still won't comply | Effort-before-tier escalation order and reviewing subagent results before use — no hook checks these happened |
 
 ## What it does
 
@@ -38,12 +38,12 @@ Be clear-eyed about this before relying on it:
 - **Verification.** Every subagent result is reviewed by the current session model before being relied on — no silent pass-through.
 - **Feedback loop.** If a result is unsatisfactory, `orch` escalates per the effort-then-tier ladder above, logs the outcome to `~/.claude/orch.feedback.jsonl`, and treats that log as routing memory — future similar subtasks start at whatever effort/tier fixed it last time.
 - **Live session effort.** `$CLAUDE_EFFORT` (set by Claude Code on every `PreToolUse` call when the model supports it) is captured into `orch.turn-state.json` every time either `PreToolUse` hook fires, and persists across turns until it actually changes — a real, always-fresh read on the session's own effort level.
-- **End-of-response summary.** Every response ends with a one-line `orch:` summary of what actually ran that turn — the tier(effort) of each delegated dispatch (e.g. `scout(low) x2, builder(high) x1`), or a complexity label (trivial/standard/complex) if the session handled it directly with no delegation, plus the live session effort if known. Sourced from `orch.turn-state.json`, not recalled from memory.
+- **End-of-response summary (hook-enforced).** Every response ends with a one-line `orch:` summary of what actually ran that turn — the tier(effort) of each delegated dispatch (e.g. `scout(low) x2, builder(high) x1`), or a complexity label (trivial/standard/complex) if the session handled it directly with no delegation, plus the live session effort if known. A `Stop` hook checks the actual response text and blocks (once per turn) if the line is missing, telling the model exactly what to report from `orch.turn-state.json`.
 - Two commands to manage the ceiling: `/orch:status`, `/orch:set-max <tier>` (set-max also enforces the hard cap — it refuses to set a ceiling above your current session model).
 
 ## What it deliberately doesn't do (v1)
 
-- The ceiling denial (both true-hard-cap and configured-ceiling forms) is the only hard block. Dispatch visibility and delegation nudges are deterministic but non-blocking; the *choice* of tier/effort, whether to delegate at all, and the end-of-response summary remain policy the main agent follows, not something a hook can force. See the enforcement table above.
+- The ceiling denial and the end-of-response summary check are the only hard blocks. Dispatch visibility and delegation nudges are deterministic but non-blocking; the *choice* of tier/effort and whether to delegate at all remain policy the main agent follows, not something a hook can force. See the enforcement table above.
 - No multi-provider routing (Codex/Gemini/etc.) — Claude tiers only.
 - No workflow DSL, no named profiles. The feedback log is a flat JSONL file, not a trained model.
 
@@ -72,4 +72,4 @@ All of these are single-session scope: if you run two Claude Code sessions from 
 
 ## Compatibility
 
-Hooks: `SessionStart` (captures the session model, injects policy), `UserPromptSubmit` (resets per-turn state), and `PreToolUse` matched to `Agent` (enforces the ceiling, denies violations, prints dispatch info) and to `Bash|Edit|Write|Glob|Grep|MultiEdit|NotebookEdit` (escalating delegation nudges, never blocks). No shared config paths with other plugins. Designed to coexist with other Claude Code plugins (developed alongside `compound-engineering`) without interference.
+Hooks: `SessionStart` (captures the session model, injects policy), `UserPromptSubmit` (resets per-turn state), `PreToolUse` matched to `Agent` (enforces the ceiling, denies violations, prints dispatch info) and to `Bash|Edit|Write|Glob|Grep|MultiEdit|NotebookEdit` (escalating delegation nudges, never blocks), and `Stop` (checks for the mandatory summary line, blocks once per turn if missing). No shared config paths with other plugins. Designed to coexist with other Claude Code plugins (developed alongside `compound-engineering`) without interference.

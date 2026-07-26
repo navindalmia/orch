@@ -10,7 +10,7 @@ function readState() {
   try {
     return JSON.parse(fs.readFileSync(STATE_PATH, "utf8"));
   } catch {
-    return { violations: 0, delegatedThisTurn: false, dispatches: [], sessionEffort: null };
+    return { violations: 0, delegatedThisTurn: false, dispatches: [], sessionEffort: null, summaryNudges: 0 };
   }
 }
 
