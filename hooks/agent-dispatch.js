@@ -8,6 +8,7 @@ const { readState, writeState } = require("./turn-state.js");
 const { tierIndexForModel, tierNameForModel } = require("./tiers.js");
 
 const CONFIG_PATH = path.join(os.homedir(), ".claude", "orch.config.json");
+const SESSION_CAP_PATH = path.join(os.homedir(), ".claude", "orch.session-cap.json");
 
 function readConfiguredCeiling() {
   try {
@@ -20,6 +21,36 @@ function readConfiguredCeiling() {
     // no config yet, or unreadable
   }
   return null;
+}
+
+// Written by session-start.js from SessionStart's `model` field — the one
+// place Claude Code actually reports which model is running the session.
+// PreToolUse hooks never receive a model field themselves, so this file is
+// the only way this hook can know the true session model.
+function readSessionCap() {
+  try {
+    const raw = fs.readFileSync(SESSION_CAP_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    if (tierIndexForModel(parsed.model) >= 0) {
+      return parsed.model;
+    }
+  } catch {
+    // no session cap captured yet (e.g. plugin just installed, or SessionStart didn't report a model)
+  }
+  return null;
+}
+
+// Effective ceiling is the lower of the configured ceiling and the actual
+// session model — never let a looser/stale config value override the real cap.
+function effectiveCeiling() {
+  const configured = readConfiguredCeiling();
+  const sessionCap = readSessionCap();
+  const configuredIndex = configured ? tierIndexForModel(configured) : Infinity;
+  const sessionIndex = sessionCap ? tierIndexForModel(sessionCap) : Infinity;
+  if (configuredIndex === Infinity && sessionIndex === Infinity) {
+    return null;
+  }
+  return configuredIndex <= sessionIndex ? configured : sessionCap;
 }
 
 function readStdin() {
@@ -58,24 +89,19 @@ async function main() {
   const model = toolInput.model;
 
   // No explicit model on the call means it inherits the session's own model,
-  // which is by definition never above whatever is running this session —
-  // nothing to enforce here.
+  // which is by definition never above the true hard cap — nothing to enforce here.
   if (model) {
-    const ceiling = readConfiguredCeiling();
+    const ceiling = effectiveCeiling();
     if (ceiling) {
       const requestedIndex = tierIndexForModel(model);
       const ceilingIndex = tierIndexForModel(ceiling);
-      // Unrecognized model names aren't blocked here — we can only enforce
-      // tiers we know about. Note: this checks against the *configured*
-      // ceiling in orch.config.json, not the live session model — a hook
-      // has no way to know which model is actually running this session,
-      // so keep the config ceiling in sync via /orch:set-max for this to
-      // mean what you expect.
+      // Unrecognized model names aren't blocked here — we can only enforce tiers we know about.
       if (requestedIndex >= 0 && requestedIndex > ceilingIndex) {
         deny(
-          `[orch] Denied: requested tier "${tierNameForModel(model)}" exceeds the configured ceiling` +
-            ` "${tierNameForModel(ceiling)}" (${ceiling}). Re-dispatch at or below the ceiling, or run` +
-            " /orch:set-max to raise it first (subject to the hard cap of your own current session model)."
+          `[orch] Denied: requested tier "${tierNameForModel(model)}" exceeds the effective ceiling` +
+            ` "${tierNameForModel(ceiling)}" (${ceiling} — the lower of your configured ceiling and this` +
+            " session's actual model). Re-dispatch at or below it, or run /orch:set-max to raise the" +
+            " configured ceiling (still capped at the session's real model)."
         );
         return;
       }

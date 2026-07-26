@@ -20,17 +20,15 @@ Be clear-eyed about this before relying on it:
 
 | Enforced by a hook (deterministic) | Policy-trusted (the model has to choose to comply) |
 |---|---|
-| Ceiling denial: an `Agent` call requesting a model above the *configured* ceiling in `orch.config.json` is actually denied, not just discouraged | The *true* hard cap — "never above whatever model is running this session" — since no hook can see which model is running the session, only what's saved in config. Keep the config ceiling in sync with reality via `/orch:set-max`. |
+| **True hard cap:** `SessionStart` captures the session's actual model (Claude Code reports it in the `model` field on that event only) to `~/.claude/orch.session-cap.json`; every `Agent` dispatch is checked against the lower of that and your configured ceiling, and denied if it exceeds either | If `SessionStart` didn't report a model this run (happens after `/clear` or compaction), the previously captured cap is reused — if none was ever captured, there's nothing to enforce yet until a normal session start occurs |
 | Dispatch visibility: tier/effort is printed on every `Agent` call, unconditionally | Which tier/effort is *chosen* for a given task — the rubric is text, not a classifier |
 | Delegation nudges: escalating reminders on direct `Bash`/`Edit`/`Write`/`Glob`/`Grep`/`MultiEdit`/`NotebookEdit` use, every time, reset every turn | Whether the model actually delegates after being nudged — nudges can be ignored |
 | — | Effort-before-tier escalation order, reviewing subagent results before use, writing feedback-log entries, and the end-of-response summary — none of these have a hook checking they happened |
 
-The practical upshot: **set a ceiling with `/orch:set-max` if you want the cost cap to be a real gate.** Without a configured ceiling, everything is policy-only.
-
 ## What it does
 
-- **Hard cap (config-enforced part).** A `PreToolUse` hook denies any `Agent` dispatch requesting a model above the ceiling saved in `~/.claude/orch.config.json`. The stronger claim — never above whatever model is *currently running the session* — is policy-only, since a hook has no way to know that at runtime; keep the saved ceiling accurate for the enforced part to matter.
-- **Ceiling.** On session start, reads your configured ceiling from `~/.claude/orch.config.json`. If none is set, it defaults to your own current model in the model's own behavior (policy-only until you set one), and the agent confirms that default with you near the start of the session.
+- **True hard cap.** `SessionStart` reads the actual model running this session straight from Claude Code's own hook input and persists it. A `PreToolUse` hook then denies any `Agent` dispatch above the lower of that captured model and your configured ceiling — a real, deterministic gate, not something the model is trusted to self-enforce.
+- **Ceiling.** On session start, reads your configured ceiling from `~/.claude/orch.config.json`. If none is set, the effective ceiling is just the session's own model (still hook-enforced), and the agent confirms that with you near the start of the session.
 - **Tier decision rubric.** Classifies each delegated subtask by concrete signals from the table above; classify by the task's hardest sub-step, not its average.
 - **Effort before tier.** Every dispatch starts at the cheapest viable tier's *lowest* reasoning effort. If the result is unsatisfactory, retry the *same* tier at its *highest* effort before ever moving to a pricier tier. Only after a tier fails at its highest effort does escalation move up a tier — again starting at that tier's lowest effort.
 - **Context isolation.** Multi-file grep/search/analysis work is never done inline in the main session — it's always delegated to an independent `Agent` call, so only the synthesized result comes back and the session's own context doesn't fill up with raw intermediate data.
@@ -43,7 +41,7 @@ The practical upshot: **set a ceiling with `/orch:set-max` if you want the cost 
 
 ## What it deliberately doesn't do (v1)
 
-- The ceiling denial is the only hard block. Dispatch visibility and delegation nudges are deterministic but non-blocking; the *choice* of tier/effort, whether to delegate at all, and the end-of-response summary remain policy the main agent follows, not something a hook can force. See the enforcement table above.
+- The ceiling denial (both true-hard-cap and configured-ceiling forms) is the only hard block. Dispatch visibility and delegation nudges are deterministic but non-blocking; the *choice* of tier/effort, whether to delegate at all, and the end-of-response summary remain policy the main agent follows, not something a hook can force. See the enforcement table above.
 - No multi-provider routing (Codex/Gemini/etc.) — Claude tiers only.
 - No workflow DSL, no named profiles. The feedback log is a flat JSONL file, not a trained model.
 
@@ -64,9 +62,12 @@ The practical upshot: **set a ceiling with `/orch:set-max` if you want the cost 
 ## Files it creates
 
 - `~/.claude/orch.config.json` — your configured ceiling (written by `/orch:set-max`)
+- `~/.claude/orch.session-cap.json` — the actual session model, captured from `SessionStart`'s `model` field; the true hard cap is enforced against this
 - `~/.claude/orch.feedback.jsonl` — append-only log of verification/escalation outcomes, used as routing memory
-- `~/.claude/orch.turn-state.json` — per-turn delegation-nudge counter, reset every user message. Single-session scope: if you run two Claude Code sessions from this machine at once, they currently share this file.
+- `~/.claude/orch.turn-state.json` — per-turn delegation-nudge and dispatch-log state, reset every user message
+
+All of these are single-session scope: if you run two Claude Code sessions from this machine at once, they currently share these files.
 
 ## Compatibility
 
-Hooks: `SessionStart` (injects policy), `UserPromptSubmit` (resets the per-turn nudge counter), and `PreToolUse` matched to `Agent` (prints dispatch info) and to `Bash|Edit|Write|Glob|Grep|MultiEdit|NotebookEdit` (escalating delegation nudges). None of these block; they only print to stderr or inject context. No shared config paths with other plugins. Designed to coexist with other Claude Code plugins (developed alongside `compound-engineering`) without interference.
+Hooks: `SessionStart` (captures the session model, injects policy), `UserPromptSubmit` (resets per-turn state), and `PreToolUse` matched to `Agent` (enforces the ceiling, denies violations, prints dispatch info) and to `Bash|Edit|Write|Glob|Grep|MultiEdit|NotebookEdit` (escalating delegation nudges, never blocks). No shared config paths with other plugins. Designed to coexist with other Claude Code plugins (developed alongside `compound-engineering`) without interference.

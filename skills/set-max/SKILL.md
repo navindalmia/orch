@@ -11,9 +11,10 @@ Tiers, cheapest to most capable: `scout` (`claude-haiku-4-5-20251001`), `builder
 1. Confirm the requested value maps to one of the three tiers above (accept the tier name, a raw model
    name like "haiku"/"sonnet"/"opus", or the full model id) and resolve it to the full model id.
 2. **Hard cap check:** the ceiling can never be set above whatever model is currently running this session
-   — the user cannot afford to spawn agents pricier than themselves. If the requested tier is above your
-   own current model, refuse it, explain why, and offer to set it to your own current tier instead (the
-   highest they can actually use right now).
+   — the user cannot afford to spawn agents pricier than themselves. This is hook-enforced: `~/.claude/orch.session-cap.json`
+   (written by the `SessionStart` hook from the actual session model) is checked by the dispatch hook
+   against whichever is lower of it and your configured ceiling. If the requested tier is above your own
+   current model, refuse it here too, explain why, and offer to set it to your own current tier instead.
 3. Write `{"maxModel": "<full-model-id>"}` to `~/.claude/orch.config.json`, creating the `~/.claude`
    directory first if it doesn't exist. Preserve any other keys already in that file if it exists — only
    overwrite `maxModel`.

@@ -4,11 +4,21 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { tierIndexForModel } = require("./tiers.js");
+const { tierIndexForModel, tierNameForModel } = require("./tiers.js");
 
 const CONFIG_PATH = path.join(os.homedir(), ".claude", "orch.config.json");
 const FEEDBACK_LOG_PATH = path.join(os.homedir(), ".claude", "orch.feedback.jsonl");
 const TURN_STATE_PATH = path.join(os.homedir(), ".claude", "orch.turn-state.json");
+const SESSION_CAP_PATH = path.join(os.homedir(), ".claude", "orch.session-cap.json");
+
+function readStdin() {
+  return new Promise((resolve) => {
+    let data = "";
+    process.stdin.on("data", (chunk) => (data += chunk));
+    process.stdin.on("end", () => resolve(data));
+    process.stdin.on("error", () => resolve(""));
+  });
+}
 
 function readConfiguredCeiling() {
   try {
@@ -23,41 +33,61 @@ function readConfiguredCeiling() {
   return null;
 }
 
-function buildCeilingSection(configuredCeiling) {
-  const lines = [
-    "- HARD CAP: the ceiling can never exceed whatever model is currently running this session, no matter" +
-      " what is saved in config. You cannot afford to spawn anything above yourself. If a saved ceiling" +
-      " requests a tier above your own current model, ignore that part of the config and cap at your own" +
-      " tier instead — don't ask, don't escalate, just cap silently and mention it in passing if relevant."
-  ];
+// The `model` field on SessionStart input is the actual model running this
+// session — not guaranteed present (e.g. after /clear or compaction). When
+// present, persist it so PreToolUse hooks (which never receive a model
+// field themselves, per Claude Code's hooks reference) can enforce the true
+// hard cap, not just whatever's saved in orch.config.json.
+function persistSessionModel(model) {
+  if (!model) return;
+  try {
+    fs.mkdirSync(path.dirname(SESSION_CAP_PATH), { recursive: true });
+    fs.writeFileSync(SESSION_CAP_PATH, JSON.stringify({ model }));
+  } catch {
+    // best-effort — a failed write just means PreToolUse falls back to config-only enforcement
+  }
+}
 
-  if (configuredCeiling) {
+function buildCeilingSection(configuredCeiling, sessionModel) {
+  const lines = [];
+
+  if (sessionModel) {
+    const sessionTierName = tierNameForModel(sessionModel);
     lines.push(
-      `- Configured ceiling (via /orch:set-max): ${configuredCeiling}, subject to the hard cap above.`,
-      "- This configured ceiling is hook-enforced: a PreToolUse hook actually denies Agent dispatches" +
-        " requesting a model above it — this is not just something you're trusted to follow.",
-      "- Near the start of this session, briefly confirm this ceiling with the user before relying on it" +
-        " (they may want to change it) — don't wait for them to ask.",
-      "- IMPORTANT: if this configured value is stale (e.g. left over from a session on a pricier model)," +
-        " it will be enforced as written regardless — tell the user to run /orch:set-max if it doesn't" +
-        " match what they want capped at right now."
+      `- HARD CAP (hook-enforced): this session's own model is ${sessionModel} (${sessionTierName}). A` +
+        " PreToolUse hook actually denies any Agent dispatch above this, regardless of what's saved in" +
+        " config — this is a real gate now, not just something you're trusted to follow."
     );
   } else {
     lines.push(
-      "- No ceiling configured yet, so there is nothing for a hook to enforce yet — set one with" +
-        " /orch:set-max as soon as possible so the hard cap becomes an actual gate, not just this text.",
-      "- Until then, default the ceiling to your own current model in your own behavior (this part is" +
-        " policy-only, not hook-enforced, since no hook can see which model is running this session).",
-      "- Near the start of this session, tell the user you're defaulting the ceiling to the current session" +
-        " model and ask them to confirm or lower it with /orch:set-max before you rely on it for delegation."
+      "- HARD CAP: this session's model wasn't reported to this hook this time (happens after /clear or" +
+        " compaction) — the previously captured session model, if any, is still enforced by the PreToolUse" +
+        " hook. Treat your own current model as the ceiling in your own behavior regardless."
+    );
+  }
+
+  if (configuredCeiling) {
+    lines.push(
+      `- Configured ceiling (via /orch:set-max): ${configuredCeiling}. The PreToolUse hook enforces` +
+        " whichever is LOWER of this and the hard cap above — also a real gate, not policy-only.",
+      "- Near the start of this session, briefly confirm this ceiling with the user before relying on it" +
+        " (they may want to change it) — don't wait for them to ask."
+    );
+  } else {
+    lines.push(
+      "- No ceiling configured beyond the hard cap itself. Tell the user near the start of this session" +
+        " that the effective ceiling is the session's own model, and they can lower it with /orch:set-max."
     );
   }
 
   return lines;
 }
 
-function buildPolicyText(configuredCeiling) {
-  const lines = ["orch: model-routing policy for this session", ...buildCeilingSection(configuredCeiling)];
+function buildPolicyText(configuredCeiling, sessionModel) {
+  const lines = [
+    "orch: model-routing policy for this session",
+    ...buildCeilingSection(configuredCeiling, sessionModel)
+  ];
 
   lines.push(
     "",
@@ -145,10 +175,24 @@ function buildPolicyText(configuredCeiling) {
   return lines.join("\n");
 }
 
-function main() {
+async function main() {
+  const raw = await readStdin();
+  let input = {};
+  try {
+    input = JSON.parse(raw);
+  } catch {
+    // proceed with an empty input — sessionModel just won't be available this run
+  }
+
+  const sessionModel = input.model || null;
+  persistSessionModel(sessionModel);
+
   const configuredCeiling = readConfiguredCeiling();
   const output = {
-    hookSpecificOutput: { hookEventName: "SessionStart", additionalContext: buildPolicyText(configuredCeiling) }
+    hookSpecificOutput: {
+      hookEventName: "SessionStart",
+      additionalContext: buildPolicyText(configuredCeiling, sessionModel)
+    }
   };
   process.stdout.write(JSON.stringify(output));
 }
