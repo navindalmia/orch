@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-const { readState, writeState } = require("./turn-state.js");
+const { readState, writeState, captureLiveEffort } = require("./turn-state.js");
 
 // Tools that indicate the main session is doing exploratory/mechanical work
 // itself instead of delegating it to a scout-tier subagent. Deliberately
@@ -42,6 +42,10 @@ async function main() {
     process.exit(0);
     return;
   }
+
+  // Capture live effort on every PreToolUse fire, regardless of which tool —
+  // this is our only fresh read on the session's own current effort level.
+  writeState(captureLiveEffort(readState()));
 
   const raw = await readStdin();
   let input;

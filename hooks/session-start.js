@@ -80,6 +80,15 @@ function buildCeilingSection(configuredCeiling, sessionModel) {
     );
   }
 
+  lines.push(
+    "- KNOWN GAP (confirmed against Claude Code's own hooks reference, not a shortcut): there is no hook" +
+      " event for a mid-session /model switch, and no hook after SessionStart ever receives a model field" +
+      " again. If you become aware your own model changed mid-session — the user tells you, or you notice" +
+      " it yourself — immediately overwrite " + SESSION_CAP_PATH + " with the new model" +
+      ' (`{"model": "<new-model-id>"}`) yourself; nothing else will catch this for you. Effort is different:' +
+      " it IS live-trackable every turn via the $CLAUDE_EFFORT mechanism, no manual action needed from you."
+  );
+
   return lines;
 }
 
@@ -159,14 +168,15 @@ function buildPolicyText(configuredCeiling, sessionModel) {
     "",
     "END-OF-RESPONSE SUMMARY (mandatory, every response, no exceptions):",
     "Before finishing each response, append a short summary line reporting what ran this turn. Do not" +
-      " recall this from memory or guess — read " + TURN_STATE_PATH + " (its `dispatches` array) as the" +
-      " source of truth for what was actually delegated this turn; it lists each dispatch's tier and effort" +
-      " in the order they happened.",
+      " recall this from memory or guess — read " + TURN_STATE_PATH + " as the source of truth: its" +
+      " `dispatches` array lists each delegated call's tier and effort in order, and its `sessionEffort`" +
+      " field is the session's own current effort level, captured live this turn via $CLAUDE_EFFORT.",
     "- If dispatches is empty: state that you handled the turn directly yourself, plus a one-word complexity" +
       " label for the main task (trivial / standard / complex) based on the same rubric signals used for" +
-      " tier classification above.",
+      " tier classification above, and include sessionEffort if it's set.",
     "- If dispatches is non-empty: list each one as `<tier>(<effort>)`, e.g." +
-      ' "orch: scout(low) x2, builder(high) x1" — plus whether you did any direct work yourself alongside them.',
+      ' "orch: scout(low) x2, builder(high) x1" — plus whether you did any direct work yourself alongside' +
+      " them, and include sessionEffort if it's set (e.g. \"orch: scout(low) x1, session effort=medium\").",
     "- Keep it to one line, plainly labelled so the user can spot it, e.g. starting with \"orch:\".",
     "",
     "This policy only shapes how you delegate via the Agent tool; it does not change your own model."

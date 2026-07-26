@@ -10,8 +10,21 @@ function readState() {
   try {
     return JSON.parse(fs.readFileSync(STATE_PATH, "utf8"));
   } catch {
-    return { violations: 0, delegatedThisTurn: false, dispatches: [] };
+    return { violations: 0, delegatedThisTurn: false, dispatches: [], sessionEffort: null };
   }
+}
+
+// $CLAUDE_EFFORT is set by Claude Code on every hook invocation that fires
+// within a tool-use context (PreToolUse/PostToolUse/Stop/SubagentStop) — it
+// reflects the *session's own* current effort level live, unlike the model
+// itself, which Claude Code only ever reports on SessionStart. Call this
+// from any PreToolUse hook to keep the recorded value fresh every turn.
+function captureLiveEffort(state) {
+  const effort = process.env.CLAUDE_EFFORT;
+  if (effort && effort !== state.sessionEffort) {
+    state.sessionEffort = effort;
+  }
+  return state;
 }
 
 function writeState(state) {
@@ -23,4 +36,4 @@ function writeState(state) {
   }
 }
 
-module.exports = { readState, writeState };
+module.exports = { readState, writeState, captureLiveEffort };

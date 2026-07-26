@@ -4,7 +4,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
-const { readState, writeState } = require("./turn-state.js");
+const { readState, writeState, captureLiveEffort } = require("./turn-state.js");
 const { tierIndexForModel, tierNameForModel } = require("./tiers.js");
 
 const CONFIG_PATH = path.join(os.homedir(), ".claude", "orch.config.json");
@@ -76,6 +76,10 @@ function deny(reason) {
 }
 
 async function main() {
+  // Capture live effort on every PreToolUse fire — our only fresh read on
+  // the session's own current effort level (model has no equivalent).
+  writeState(captureLiveEffort(readState()));
+
   const raw = await readStdin();
   let input;
   try {
