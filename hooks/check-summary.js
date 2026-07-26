@@ -59,9 +59,9 @@ async function main() {
   process.stdout.write(
     JSON.stringify({
       decision: "block",
-      reason: "[orch] Your response is missing the mandatory end-of-response orch: summary line." +
-        ` This turn's actual data: ${dispatchSummary}${effortNote}. Append one line starting with "orch:"` +
-        " reporting this now — don't redo any of the actual work, just add the missing summary line."
+      reason: `One more thing before this turn wraps up: add the orch: routing summary line.` +
+        ` This turn's data: ${dispatchSummary}${effortNote}. No need to redo any of the actual work —` +
+        ' just append one line starting with "orch:" reporting it.'
     })
   );
   process.exit(0);
